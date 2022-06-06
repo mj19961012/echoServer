@@ -1,11 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -19,8 +19,7 @@ const (
 )
 
 var (
-	functionLatency = CreateExecutionTimeMetric(MetricsNamespace,
-		"Time spent.")
+	functionLatency = CreateExecutionTimeMetric(MetricsNamespace, "Time spent.")
 )
 
 // NewExecutionTimer provides a timer for Updater's RunOnce execution
@@ -76,7 +75,14 @@ func GracefullExit() {
 	os.Exit(0)
 }
 
+type MsgData struct {
+	Data string `json:"data"`
+}
+
 func Msg(w http.ResponseWriter, r *http.Request) {
+
+	timer := NewTimer()
+	defer timer.ObserveTotal()
 
 	for k, v := range r.Header {
 		for _, value := range v {
@@ -84,20 +90,23 @@ func Msg(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	timer := NewTimer()
-	defer timer.ObserveTotal()
-
-	w.WriteHeader(http.StatusOK)
-	fmt.Println("Client IP:", r.Host)
-	fmt.Println("Return Code:", http.StatusOK)
 	len := r.ContentLength
 	fmt.Println(len)
-	msg := make([]byte, len)
-	r.Body.Read(msg)
-	fmt.Println(msg)
-	s, _ := ioutil.ReadAll(r.Body)
-	fmt.Println(s)
-	w.Write(msg)
+
+	msgdata := json.NewDecoder(r.Body)
+	var message MsgData
+	msgdata.Decode(&message)
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Println("Client IP:", r.RemoteAddr)
+	fmt.Println("Return Code:", http.StatusOK)
+
+	retdata, err := json.Marshal(&message)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(retdata)
 }
 
 func healthz(w http.ResponseWriter, r *http.Request) {
